@@ -6,3 +6,4 @@
 .clang_complete
 .gcc-flags.json
 **/secrets.h
+*/secrets.h
