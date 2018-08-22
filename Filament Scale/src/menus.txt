@@ -1,0 +1,26 @@
+12345678901234567890123456
+MENU 1
+Weight
+raw value
+
+MENU 2
+Set Zero
+Solid 50x200x90
+Open  50x200x76
+Next Menu
+double click to select
+
+Menu 3
+   Filament Scale
+   
+On time 00h 00m  00x
+
+Raw: 0000.00, Total: 000g
+Actual 000g
+
+Menu 21
+Set Zero
+Lift up spool to
+Remove all weight 
+from load cell
+Press when steady state
