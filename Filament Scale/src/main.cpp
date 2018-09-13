@@ -2,7 +2,7 @@
 This program was written by Dean McGee on and is free for any use
 
 This program determines the amount of remaining filament for a 3D printer.
- It is inspired by the thingiverse make: https://www.thingiverse.com/thing:2798423/files
+ It is inspired by the thingiverse make: https://www.thingiverse.com/thing:2798423
  3D Printer Filament Scale, by Steven Westerfeld, aka Kisssys.
  The mounting mechanism and load cell are unchanged but everything else is different.
  The hardware required is:
@@ -11,6 +11,8 @@ This program determines the amount of remaining filament for a 3D printer.
    WeMos D1 Mini tripler base, standard size, with connector headers
    One-Button Shield for WeMos D1 Mini
    Dupont connector jumper wires
+   608 bearings (four are required)
+   8mm or 5/16" steel rod 
    Follow manufacturer instructions for connecting HX711 to load cell. 
    Soldering is required for Tripler Base and HX711 
 
@@ -158,11 +160,11 @@ void displayMenu3() {
 
   display.setFont(ArialMT_Plain_10);
   display.clear();
-  display.drawString(0,10,"     Filament Scale");
+  display.drawString(0,0,"     Filament Scale");
   display.drawString(0,10,"slope_g_u: " + String(slope_g_u,5));
   display.drawString(0,20,"no_contact_g: " + String(no_contact_g,5));
-  display.drawString(0,30,"NO_FORCE_G: " + String(no_force_g,10));
-  display.drawString(0,30,"IP: " + String(WiFi.localIP()[0]) + "." + String(WiFi.localIP()[1]) + "." + 
+  display.drawString(0,30,"NO_FORCE_G: " + String(no_force_g,3));
+  display.drawString(0,40,"IP: " + String(WiFi.localIP()[0]) + "." + String(WiFi.localIP()[1]) + "." + 
                         String(WiFi.localIP()[2]) + "." + String(WiFi.localIP()[3]));
 
   display.drawString(0,50,"Raw: " + String(weight_u,2) + " g: " + String(units2grams(weight_u),1));
@@ -185,8 +187,8 @@ void displayMenu2() { // selection menu
   display.clear();  
   display.setFont(ArialMT_Plain_10);
   display.drawString(0,0 ,s[0] + "Set Zero"); // menu 21
-  display.drawString(0,10,s[1] + "Spool Solid 50x200x90"); // menu 22
-  display.drawString(0,20,s[2] + "Spool Open 50x200x76");  // menu 23
+  display.drawString(0,10,s[1] + STR_SPOOL_1); // menu 22
+  display.drawString(0,20,s[2] + STR_SPOOL_2);  // menu 23
   display.drawString(0,30,s[3] + "Next Menu"); // menu 3
   display.drawString(0,50,"long click to select");
   display.display();
@@ -207,10 +209,10 @@ void displayMenu21(){ // set zero
 void displayMenu22(){ // set Solid 50x200x90
   display.clear();
   display.setFont(ArialMT_Plain_16);
-  display.drawString(0,0, "Solid 50x200x90");
+  display.drawString(0,0, STR_SPOOL_1);
   display.setFont(ArialMT_Plain_10);
   display.drawString(0,16, "Setting spool type to");
-  display.drawString(0,26,"Solid 50x200x90");
+  display.drawString(0,26,STR_SPOOL_1);
   display.setFont(ArialMT_Plain_16);
   display.drawString(0,40,"Weight:" + String(SPOOL_1_G,0));
   display.display();
@@ -223,10 +225,10 @@ void displayMenu22(){ // set Solid 50x200x90
 void displayMenu23(){ // set Open 50x200x76
   display.clear();
   display.setFont(ArialMT_Plain_16);
-  display.drawString(0,0, "Open 50x200x76");
+  display.drawString(0,0, STR_SPOOL_2);
   display.setFont(ArialMT_Plain_10);
   display.drawString(0,16, "Setting spool type to");
-  display.drawString(0,26,"Open 50x200x76");
+  display.drawString(0,26,STR_SPOOL_2);
   display.setFont(ArialMT_Plain_16);
   display.drawString(0,40,"Weight:" + String(SPOOL_2_G,0));
   display.display();
