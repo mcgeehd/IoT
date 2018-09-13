@@ -1,24 +1,60 @@
-// Measured values:
-//  zero load: 8522.6
-//  no spool:  8595.3 = 72.7 = load of holder
-// Measured values
-// condition  trial1  trial2  trial3
-// no spool   8595.3  8596.0  8595.6
-// 1168g      9028.4  9029.4  9030.0
-//  486g      8775.4  8776.2  8776.3
-//  900g      8928.0  8930.5  8930.2
-//  scale factor: 2.6945 g/units
-//  spool holder load: 8595.6 units
-#define HX711_SCALE 2.6945 // g/unit
-#define SPOOL_HOLDER_WEIGHT_U 71.5 //70.5 //72.633 // unit
-#define SPOOL_SOLID_50x200x90 219.0  // gram
-#define SPOOL_OPEN_50x200x76 196.0  // gram 
-#define STR_SOLID_50x200x90 "Solid 50x200x90"
-#define STR_OPEN_50x200x76 "Open 50x200x76"
-#define NO_LOAD_U 8523.0 // unit
-#define FILAMENT_M_PER_GRAM 0.33
+/* 
+This program was written by Dean McGee on and is free for any use
+
+This program determines the amount of remaining filament for a 3D printer.
+ It is inspired by the thingiverse make: https://www.thingiverse.com/thing:2798423/files
+ 3D Printer Filament Scale, by Steven Westerfeld, aka Kisssys.
+ The mounting mechanism and load cell are unchanged but everything else is different.
+ The hardware required is:
+   5kg load cell with HX711 interface
+   0.96" IIC Oled display
+   WeMos D1 Mini tripler base, standard size, with connector headers
+   One-Button Shield for WeMos D1 Mini
+   Dupont connector jumper wires
+   Follow manufacturer instructions for connecting HX711 to load cell. 
+   Soldering is required for Tripler Base and HX711 
 
 
+The Oled and Load cell can be connected to either 3.3 or 5v
+Oled SCl connects to D1
+Oled SDA connects to D2
+HX711 SDA connects to D5
+HX711 SCL connects to D6
+
+You will need to calibrate your load cell to the filament weight
+Measure the following conditions:
+1) no contact reading -- pivot arm not touching load cell
+   Record load cell value: NO_CONTACT_U
+2) no spool reading -- pivot arm touching load cell spool holder installed but no spool installed
+   Record load cell value: NO_SPOOL_U
+3) Maximum load reading -- full sized spool installed and pivot arm contacting load cell  
+   Record load cell value: FULL_LOAD_U
+   Measure full spool on kitchen scale and record value (grams): FULL_LOAD_G
+4) If desired modify the default spool selections, size and weight
+
+Library dependencies (for platformio) are:
+lib_deps =
+  HX711           ; by bogde
+  ESP8266_SSD1306 ; by Daniel Eichhorn
+  OneButton       ; by Matthias Hertel
+*/
+
+/* 
+Change Log
+20180913 hdm initial code release
+*/
+
+// user defined parameters
+#define NO_CONTACT_U 8522.0 // load cell reading: pivot arm is not in contact with load cell
+#define NO_SPOOL_U   8594.5 // load cell reading: spool holder installed but no spool included
+#define FULL_LOAD_U  9011.6 // load cell reading at maximum load
+#define FULL_LOAD_G  1117.0 // maximum load in grams
+
+#define STR_SPOOL_1 "Solid 50x200x90" // hole diameter x spool diameter x thickness
+#define STR_SPOOL_2 "Open 50x200x76"
+#define SPOOL_1_G 219.0  // gram
+#define SPOOL_2_G 196.0  // gram 
+#define FILAMENT_M_PER_GRAM 0.33 // default is for PLA
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -49,25 +85,38 @@ HX711 scale(D5, D6);		// parameter "gain" is ommited; the default value 128 is u
 
 #define MAXMENU 2
 #define MAX_MENU2 4
-#define M_PER_GRAM 0.33  // filament meters per gram
+
+#define BUTTON_NO_PRESS 0
+#define BUTTON_SHORT_PRESS 1
+#define BUTTON_LONG_PRESS 2
+
+float slope_g_u; // change in grams / change in u
+float no_force_g; // g value at u=0
+float no_contact_u; // current no-contact value
 
 float weight_u;  // units of HX711/1000
-float CurrentWeight_u = 0; // units
-ulong freeHeap;
-long milli;
-long h,m,s;
+float weight_g;  // weight_u converted to grams including spool
+float currentSpool_g;  // weight of current empty spool in g
+float noLoadWeight_g;  // noload reading HX711/1000 units
+float no_contact_g;    // grams at zero contact
+String strCurrentSpool = "                          ";
+
+// menu related items
 int curMenu = 1;
 int curMenu2 = 1;
+int buttonPress;
 bool longPress = false;
-long menu1Time = 0;
-long menu2Time = 0;
 bool clicked = false;
 bool doubleClicked = false;
-int buttonPress;
-float currentSpool_u;  // weight of current empty spool in units
-float currentSpool_g;  // weight of current empty spool in g
-float noLoadWeight_u;  // noload reading HX711/1000 units
-String strCurrentSpool;
+
+float units2grams(float x) 
+// convert HX711 units to grams of filament
+{
+  // subtract off zero contact compensation
+  x = x + NO_CONTACT_U - no_contact_u;
+  // subtract off current spool weight
+  return(slope_g_u*x + no_force_g - currentSpool_g);
+} // units2grams
 
 void init_hardware()
 {
@@ -97,69 +146,35 @@ int checkClick() {
     }
     ms = millis() - ms;
     if (ms > 500) {
-      buttonPress = 2;
+      buttonPress = BUTTON_LONG_PRESS;
     } else {
-      buttonPress = 1;
+      buttonPress = BUTTON_SHORT_PRESS;
     }
   }
   return(buttonPress);
 } // checkClick
 
-void setup()   {
-#if USE_SERIAL_MONITOR
-  Serial.begin(9600);
-#endif
-
-  display.init();
-  display.flipScreenVertically();
-  display.setFont(ArialMT_Plain_10);
-  display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.drawString(0,10,"Starting Up");
-  display.display();
-
-  init_hardware();
-  delay(1000);
-  weight_u = scale.read()/1000.0;
-  currentSpool_g = SPOOL_SOLID_50x200x90;
-  currentSpool_u = SPOOL_SOLID_50x200x90 / HX711_SCALE;
-  noLoadWeight_u = NO_LOAD_U;
-  strCurrentSpool = STR_SOLID_50x200x90;
-  ArduinoOTA.begin();
-} // setup
-
 void displayMenu3() {
-  menu2Time = millis();
-   freeHeap = ESP.getFreeHeap();
-  milli = millis();
-  h = milli/3600000;
-  milli = milli - 3600000*h;
-  m = milli/60000;
-  milli = milli - 60000*m;
-  s = milli/1000;
 
   display.setFont(ArialMT_Plain_10);
   display.clear();
-  display.drawString(0,0,"     Filament Scale");
-  display.drawString(0,10,"Free Heap: " + String(freeHeap));
-  display.drawString(0,20,"On time: " + String(h) + "h " + String(m) + "m " + String(s) + "s");
+  display.drawString(0,10,"     Filament Scale");
+  display.drawString(0,10,"slope_g_u: " + String(slope_g_u,5));
+  display.drawString(0,20,"no_contact_g: " + String(no_contact_g,5));
+  display.drawString(0,30,"NO_FORCE_G: " + String(no_force_g,10));
   display.drawString(0,30,"IP: " + String(WiFi.localIP()[0]) + "." + String(WiFi.localIP()[1]) + "." + 
                         String(WiFi.localIP()[2]) + "." + String(WiFi.localIP()[3]));
 
-  display.drawString(0,40,"Raw: " + String(weight_u,2));
-  display.drawString(0,50,"Actual: " + String(((weight_u-noLoadWeight_u-currentSpool_u-SPOOL_HOLDER_WEIGHT_U)*HX711_SCALE),0) + "g");
+  display.drawString(0,50,"Raw: " + String(weight_u,2) + " g: " + String(units2grams(weight_u),1));
   display.display();
-  menu2Time = millis() - menu2Time;
 } // displayMenu3
 
 void displayMenu1() { // Main menu
-float weight_g;
-  weight_g = ((weight_u-noLoadWeight_u-currentSpool_u-SPOOL_HOLDER_WEIGHT_U)*HX711_SCALE);
-  display.setFont(ArialMT_Plain_16);
   display.clear();
-  display.drawString(0,0,"Filament Weight");  
   display.setFont(ArialMT_Plain_24);
   display.drawString(0,25,String(weight_g,0) + "g, " + String(weight_g * FILAMENT_M_PER_GRAM,0) + "m"  );
   display.setFont(ArialMT_Plain_10);
+  display.drawString(0,0, "Load Cell: " + String(weight_u,2));
   display.drawString(0,54,strCurrentSpool + ": " + String(currentSpool_g,0) + "g");
   display.display();
 } // displayMenu1
@@ -184,10 +199,9 @@ void displayMenu21(){ // set zero
   display.setFont(ArialMT_Plain_10);
   display.drawString(0,16, "Lift up spool to");
   display.drawString(0,26,"remove all weight");
-  display.drawString(0,40,"            " + String(((weight_u-noLoadWeight_u)*HX711_SCALE),1) + "g");
+  display.drawString(0,40,"            " + String((units2grams(weight_u)-no_contact_g),1) + "g");
   display.drawString(0,54,"Click when steady state");
   display.display();
-  noLoadWeight_u = weight_u;
 } // displayMenu21
 
 void displayMenu22(){ // set Solid 50x200x90
@@ -198,11 +212,10 @@ void displayMenu22(){ // set Solid 50x200x90
   display.drawString(0,16, "Setting spool type to");
   display.drawString(0,26,"Solid 50x200x90");
   display.setFont(ArialMT_Plain_16);
-  display.drawString(0,40,"Weight:" + String(SPOOL_SOLID_50x200x90,0));
+  display.drawString(0,40,"Weight:" + String(SPOOL_1_G,0));
   display.display();
-  currentSpool_g = SPOOL_SOLID_50x200x90;
-  currentSpool_u = SPOOL_SOLID_50x200x90 / HX711_SCALE;
-  strCurrentSpool = STR_SOLID_50x200x90;
+  currentSpool_g = SPOOL_1_G;
+  strCurrentSpool = STR_SPOOL_1;
   delay(2000);
   curMenu = 1;
 } // displayMenu22
@@ -215,11 +228,10 @@ void displayMenu23(){ // set Open 50x200x76
   display.drawString(0,16, "Setting spool type to");
   display.drawString(0,26,"Open 50x200x76");
   display.setFont(ArialMT_Plain_16);
-  display.drawString(0,40,"Weight:" + String(SPOOL_OPEN_50x200x76,0));
+  display.drawString(0,40,"Weight:" + String(SPOOL_2_G,0));
   display.display();
-  currentSpool_g = SPOOL_OPEN_50x200x76;
-  currentSpool_u = SPOOL_OPEN_50x200x76 / HX711_SCALE; // displayMenu23
-  strCurrentSpool = STR_OPEN_50x200x76;
+  currentSpool_g = SPOOL_2_G;
+  strCurrentSpool = STR_SPOOL_2;
   delay(2000);
   curMenu = 1;
 } // displayMenu23
@@ -256,7 +268,7 @@ void doMenuClick() {
       curMenu2 = 1;
       break;
     case 2:
-      if (buttonPress == 2) 
+      if (buttonPress == BUTTON_LONG_PRESS) 
         switch (curMenu2) {
           case 1: // Set Zero
             curMenu = 21;
@@ -282,20 +294,50 @@ void doMenuClick() {
       curMenu = 1;
       curMenu2 = 1;
       break;
-    case 21:
+    case 21: // display set zero menu
       displayMenu21();
-      // need to set reference value
+      no_contact_u = weight_u;
+      no_contact_g = units2grams(no_contact_u);
       curMenu = 1;
       break;
     default:
       displayMenu1();
   } // switch curMenu
-  buttonPress = 0;
+  buttonPress = BUTTON_NO_PRESS;
 } // doMenuClick
+
+void setup()   {
+#if USE_SERIAL_MONITOR
+  Serial.begin(115200);
+#endif
+
+  display.init();
+  display.flipScreenVertically();
+  display.setFont(ArialMT_Plain_10);
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+  display.drawString(0,10,"Starting Up");
+  display.display();
+
+  init_hardware();
+
+  delay(1000);
+
+  // setup scale parameters
+  weight_u = scale.read()/1000.0;
+  currentSpool_g = SPOOL_1_G;
+  strCurrentSpool = STR_SPOOL_1;
+  slope_g_u = FULL_LOAD_G/(FULL_LOAD_U-NO_SPOOL_U);
+  no_force_g = -NO_SPOOL_U*slope_g_u;
+  no_contact_u = NO_CONTACT_U;
+  no_contact_g = units2grams(NO_CONTACT_U);
+
+  ArduinoOTA.begin();
+} // setup
 
 void loop() {
 
   weight_u = weight_u + (scale.read()/1000.0-weight_u)*0.2;
+  weight_g = units2grams(weight_u);
   displayMenu();
   if (checkClick()) {
     doMenuClick();
