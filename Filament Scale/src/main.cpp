@@ -122,12 +122,13 @@ float units2grams(float x)
 
 void init_hardware()
 {
+  int tries = 0;
   WiFi.disconnect(true);
 
   pinMode(D3, INPUT); // set pushbutton shield port
 
   WiFi.begin(WIFI_SSID, WIFI_PASSPHRASE);
-  while (WiFi.status() != WL_CONNECTED) {
+  while ((WiFi.status() != WL_CONNECTED) && (tries++ < 100)) {
     delay(100);
   }
 } // init_hardware
